@@ -1,0 +1,8 @@
+[tools]
+go = "latest"
+
+[env]
+_.file = [".env.default", { path = ".env", optional = true }]
+
+[tasks.server]
+run = "go run ./cmd/app/main.go"
