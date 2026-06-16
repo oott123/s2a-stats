@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"s2astats/internal/stats"
+	"s2astats/internal/web"
 )
 
 // statsService 是 handler 依赖的业务接口。
@@ -21,27 +22,44 @@ type statsService interface {
 	MonthlyUsage(ctx context.Context, accountID int64, year, month int) (*stats.MonthlyUsageResponse, error)
 }
 
-// Server 持有业务服务与公共 token。
+// Server 持有业务服务、公共 token 与挂载前缀。
 type Server struct {
-	svc   statsService
-	token string
+	svc      statsService
+	token    string
+	basePath string // 如 /stats，空=挂载到根
 }
 
-// New 创建 Server。
-func New(svc statsService, token string) *Server {
-	return &Server{svc: svc, token: token}
+// New 创建 Server。basePath 形如 /stats（已由 config 校验），空表示挂载到根。
+func New(svc statsService, token, basePath string) *Server {
+	return &Server{svc: svc, token: token, basePath: basePath}
 }
 
 var monthRe = regexp.MustCompile(`^\d{4}-(0[1-9]|1[0-2])$`)
 
-// Handler 构建并返回路由。
+// Handler 构建并返回路由。前端与 v1 API 挂载到 basePath 下，/healthz 始终在根。
 func (s *Server) Handler() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", s.handleHealthz)
-	mux.Handle("GET /v1/accounts", s.auth(http.HandlerFunc(s.handleAccounts)))
-	mux.Handle("GET /v1/accounts/{id}/window-usage", s.auth(http.HandlerFunc(s.handleWindowUsage)))
-	mux.Handle("GET /v1/accounts/{id}/monthly-usage", s.auth(http.HandlerFunc(s.handleMonthlyUsage)))
-	return mux
+	app := http.NewServeMux()
+	app.HandleFunc("GET /{$}", s.handleIndex)
+	app.Handle("GET /v1/accounts", s.auth(http.HandlerFunc(s.handleAccounts)))
+	app.Handle("GET /v1/accounts/{id}/window-usage", s.auth(http.HandlerFunc(s.handleWindowUsage)))
+	app.Handle("GET /v1/accounts/{id}/monthly-usage", s.auth(http.HandlerFunc(s.handleMonthlyUsage)))
+
+	root := http.NewServeMux()
+	root.HandleFunc("GET /healthz", s.handleHealthz)
+	if s.basePath == "" {
+		root.Handle("/", app)
+	} else {
+		root.Handle(s.basePath+"/", http.StripPrefix(s.basePath, app))
+		// 无尾斜杠时重定向到 basePath/，确保前端相对路径解析正确。
+		root.Handle(s.basePath, http.RedirectHandler(s.basePath+"/", http.StatusMovedPermanently))
+	}
+	return root
+}
+
+// handleIndex 返回内嵌的单页前端。
+func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write(web.IndexHTML)
 }
 
 // auth 校验公共只读 token：Authorization: Bearer 或 ?token=。

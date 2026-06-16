@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>s2astats</title>
+<style>
+  :root {
+    /* 浅色（默认） */
+    --bg: #f6f7f9;
+    --surface: #ffffff;
+    --surface-2: #eef0f3;
+    --border: #e2e5ea;
+    --text: #1a1d23;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --ok: #16a34a;
+    --warn: #d97706;
+    --bad: #dc2626;
+  }
+  /* 深色调色板 */
+  :root[data-theme="dark"], .dark-palette {
+    --bg: #0f1115;
+    --surface: #181b22;
+    --surface-2: #20242d;
+    --border: #2a2f3a;
+    --text: #e6e8ec;
+    --muted: #8b909c;
+    --accent: #6ea8fe;
+    --ok: #4ade80;
+    --warn: #fbbf24;
+    --bad: #f87171;
+  }
+  /* 未显式选择时跟随系统 */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme]) {
+      --bg: #0f1115;
+      --surface: #181b22;
+      --surface-2: #20242d;
+      --border: #2a2f3a;
+      --text: #e6e8ec;
+      --muted: #8b909c;
+      --accent: #6ea8fe;
+      --ok: #4ade80;
+      --warn: #fbbf24;
+      --bad: #f87171;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+  }
+  #theme-toggle {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 10;
+    width: 38px; height: 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--muted);
+    border-radius: 9px;
+    cursor: pointer;
+    transition: border-color .15s, color .15s;
+  }
+  #theme-toggle:hover { border-color: var(--accent); color: var(--accent); }
+  #theme-toggle svg { width: 18px; height: 18px; display: block; }
+  main { max-width: 980px; margin: 0 auto; padding: 24px; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 14px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    cursor: pointer;
+    transition: border-color .15s, transform .05s;
+  }
+  .card:hover { border-color: var(--accent); }
+  .card:active { transform: scale(.995); }
+  .card.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .card-name { font-weight: 600; font-size: 15px; word-break: break-all; }
+  .badge {
+    flex: none;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--muted);
+    border: 1px solid var(--border);
+  }
+  .badge.active { color: var(--ok); border-color: #2f5e3f; }
+  .meter { margin-top: 10px; }
+  .meter-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .meter-label b { color: var(--text); font-weight: 600; }
+  .bar { height: 6px; background: var(--surface-2); border-radius: 999px; overflow: hidden; }
+  .bar > span { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+  .bar > span.warn { background: var(--warn); }
+  .bar > span.bad { background: var(--bad); }
+  .reset {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .reset span:last-child { color: var(--text); font-weight: 500; }
+  .sampled { margin-top: 12px; font-size: 11px; color: var(--muted); }
+  .na { color: var(--muted); font-size: 12px; margin-top: 10px; }
+
+  #detail {
+    margin-top: 24px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  #detail h2 { font-size: 15px; margin: 0 0 4px; }
+  #detail .detail-sub { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
+  .windows { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 640px) { .windows { grid-template-columns: 1fr; } }
+  .window h3 { font-size: 13px; margin: 0 0 2px; }
+  .window .range { color: var(--muted); font-size: 11px; margin-bottom: 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  td.cost { text-align: right; font-variant-numeric: tabular-nums; }
+  tfoot td { font-weight: 600; border-bottom: none; }
+
+  .notice {
+    padding: 14px 16px;
+    border-radius: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .notice.error { color: var(--bad); border-color: #5e2f2f; }
+  .spinner { color: var(--muted); font-size: 14px; padding: 8px 0; }
+</style>
+</head>
+<body>
+<button id="theme-toggle" type="button" title="切换深色 / 浅色" aria-label="切换主题"></button>
+<main>
+  <div id="app"><div class="spinner">加载中…</div></div>
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---- 主题切换：默认跟随系统，显式选择后写入 localStorage ----
+  const themeBtn = document.getElementById("theme-toggle");
+  // 深色态显示太阳（点击转浅色），浅色态显示月亮（点击转深色）。
+  const SUN_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>';
+  const MOON_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+  function systemDark() {
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  }
+  function currentDark() {
+    const t = document.documentElement.getAttribute("data-theme");
+    return t ? t === "dark" : systemDark();
+  }
+  function applyTheme(stored) {
+    if (stored === "dark" || stored === "light") {
+      document.documentElement.setAttribute("data-theme", stored);
+    } else {
+      document.documentElement.removeAttribute("data-theme"); // 跟随系统
+    }
+    themeBtn.innerHTML = currentDark() ? SUN_ICON : MOON_ICON;
+  }
+  applyTheme(localStorage.getItem("theme"));
+  themeBtn.addEventListener("click", () => {
+    const next = currentDark() ? "light" : "dark";
+    localStorage.setItem("theme", next);
+    applyTheme(next);
+  });
+  // 系统主题变化时，若用户未显式选择则跟随。
+  if (window.matchMedia) {
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+      if (!localStorage.getItem("theme")) applyTheme(null);
+    });
+  }
+
+  // 从 URL query 提取 token。
+  const token = new URLSearchParams(location.search).get("token") || "";
+  const app = document.getElementById("app");
+
+  function api(path) {
+    return fetch(path, { headers: { Authorization: "Bearer " + token } }).then((r) => {
+      if (r.status === 401) throw new Error("token 无效或缺失");
+      if (!r.ok) throw new Error("请求失败：HTTP " + r.status);
+      return r.json();
+    });
+  }
+
+  function el(tag, attrs, children) {
+    const e = document.createElement(tag);
+    if (attrs) for (const k in attrs) {
+      if (k === "class") e.className = attrs[k];
+      else if (k === "text") e.textContent = attrs[k];
+      else e.setAttribute(k, attrs[k]);
+    }
+    if (children) for (const c of children) e.appendChild(c);
+    return e;
+  }
+
+  function fmtCost(v) {
+    return "$" + (v || 0).toFixed(2);
+  }
+
+  function fmtTime(s) {
+    if (!s) return "—";
+    const d = new Date(s);
+    if (isNaN(d)) return s;
+    const p = (n) => String(n).padStart(2, "0");
+    return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) +
+      " " + p(d.getHours()) + ":" + p(d.getMinutes());
+  }
+
+  // relReset 返回距离 reset 时刻的人类可读剩余/超出时长。
+  function relReset(s) {
+    const d = new Date(s);
+    if (isNaN(d)) return "";
+    let sec = Math.round((d.getTime() - Date.now()) / 1000);
+    const past = sec < 0;
+    sec = Math.abs(sec);
+    const day = Math.floor(sec / 86400);
+    const hr = Math.floor((sec % 86400) / 3600);
+    const min = Math.floor((sec % 3600) / 60);
+    let out;
+    if (day > 0) out = day + " 天 " + hr + " 小时";
+    else if (hr > 0) out = hr + " 小时 " + min + " 分";
+    else out = min + " 分";
+    return past ? "已重置 " + out : "还剩 " + out;
+  }
+
+  function notice(msg, isError) {
+    app.innerHTML = "";
+    app.appendChild(el("div", { class: "notice" + (isError ? " error" : ""), text: msg }));
+  }
+
+  function meter(label, w) {
+    if (!w) return el("div", { class: "na", text: label + "：无采样" });
+    const pct = Math.max(0, Math.min(1, w.utilization)) * 100;
+    const cls = pct >= 90 ? "bad" : pct >= 70 ? "warn" : "";
+    const fill = el("span", { class: cls });
+    fill.style.width = pct.toFixed(1) + "%";
+    return el("div", { class: "meter" }, [
+      el("div", { class: "meter-label" }, [
+        el("span", { text: label }),
+        el("b", { text: pct.toFixed(1) + "%" }),
+      ]),
+      el("div", { class: "bar" }, [fill]),
+      el("div", { class: "reset" }, [
+        el("span", { text: "重置于 " + fmtTime(w.resets_at) }),
+        el("span", { text: relReset(w.resets_at) }),
+      ]),
+    ]);
+  }
+
+  function userTable(title, win) {
+    const wrap = el("div", { class: "window" });
+    wrap.appendChild(el("h3", { text: title }));
+    if (!win || !win.available) {
+      wrap.appendChild(el("div", { class: "range", text: "无重置数据，窗口不可用" }));
+      return wrap;
+    }
+    wrap.appendChild(el("div", {
+      class: "range",
+      text: fmtTime(win.window_start) + " → " + fmtTime(win.window_end),
+    }));
+
+    const users = win.users || [];
+    const tbody = el("tbody");
+    let total = 0;
+    if (users.length === 0) {
+      tbody.appendChild(el("tr", {}, [el("td", { colspan: "2", text: "无用量记录" })]));
+    } else {
+      for (const u of users) {
+        total += u.standard_cost || 0;
+        tbody.appendChild(el("tr", {}, [
+          el("td", { text: u.username }),
+          el("td", { class: "cost", text: fmtCost(u.standard_cost) }),
+        ]));
+      }
+    }
+    const table = el("table", {}, [
+      el("thead", {}, [el("tr", {}, [
+        el("th", { text: "用户" }),
+        el("th", { class: "cost", text: "标准消费" }),
+      ])]),
+      tbody,
+    ]);
+    if (users.length > 0) {
+      table.appendChild(el("tfoot", {}, [el("tr", {}, [
+        el("td", { text: "合计" }),
+        el("td", { class: "cost", text: fmtCost(total) }),
+      ])]));
+    }
+    wrap.appendChild(table);
+    return wrap;
+  }
+
+  let selectedCard = null;
+
+  function renderDetail(acct, container) {
+    container.innerHTML = "";
+    const detail = el("div", { id: "detail" });
+    detail.appendChild(el("h2", { text: acct.name }));
+    detail.appendChild(el("div", { class: "detail-sub", text: "5 小时 / 7 天窗口内各用户标准消费" }));
+    detail.appendChild(el("div", { class: "spinner", text: "加载用量…" }));
+    container.appendChild(detail);
+
+    api("v1/accounts/" + acct.id + "/window-usage").then((data) => {
+      detail.removeChild(detail.lastChild);
+      detail.appendChild(el("div", { class: "windows" }, [
+        userTable("5 小时窗口", data.five_hour),
+        userTable("7 天窗口", data.seven_day),
+      ]));
+    }).catch((err) => {
+      detail.removeChild(detail.lastChild);
+      detail.appendChild(el("div", { class: "notice error", text: err.message }));
+    });
+  }
+
+  function renderAccounts(accounts) {
+    app.innerHTML = "";
+    if (accounts.length === 0) {
+      notice("没有可显示的 Anthropic 账号");
+      return;
+    }
+
+    const grid = el("div", { class: "grid" });
+    const detailHost = el("div");
+
+    for (const a of accounts) {
+      const card = el("div", { class: "card" });
+      const badge = el("span", {
+        class: "badge" + (a.status === "active" ? " active" : ""),
+        text: a.status || "unknown",
+      });
+      card.appendChild(el("div", { class: "card-head" }, [
+        el("div", { class: "card-name", text: a.name }),
+        badge,
+      ]));
+      if (a.sampled) {
+        card.appendChild(meter("5 小时", a.five_hour));
+        card.appendChild(meter("7 天", a.seven_day));
+        card.appendChild(el("div", { class: "sampled", text: "采样于 " + fmtTime(a.sampled_at) }));
+      } else {
+        card.appendChild(el("div", { class: "na", text: "尚无被动采样数据" }));
+      }
+
+      card.addEventListener("click", () => {
+        if (selectedCard) selectedCard.classList.remove("selected");
+        selectedCard = card;
+        card.classList.add("selected");
+        renderDetail(a, detailHost);
+        detailHost.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      });
+      grid.appendChild(card);
+    }
+
+    app.appendChild(grid);
+    app.appendChild(detailHost);
+  }
+
+  if (!token) {
+    notice("URL 中缺少 token，请使用 ?token=… 访问", true);
+    return;
+  }
+
+  api("v1/accounts")
+    .then((data) => renderAccounts(data.accounts || []))
+    .catch((err) => notice(err.message, true));
+})();
+</script>
+</body>
+</html>

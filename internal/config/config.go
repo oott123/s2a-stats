@@ -4,12 +4,14 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 )
 
 // Config 是 s2astats 的全部运行配置。
 type Config struct {
 	ListenAddr  string         // S2A_LISTEN_ADDR
+	BasePath    string         // S2A_BASE_PATH（如 /stats，空=挂载到根）
 	Sub2APIDSN  string         // S2A_SUB2API_DSN（必填）
 	PublicToken string         // S2A_PUBLIC_TOKEN（必填）
 	BillingLoc  *time.Location // 由 S2A_BILLING_TIMEZONE 解析
@@ -21,6 +23,7 @@ type Config struct {
 func Load() (*Config, error) {
 	cfg := &Config{
 		ListenAddr:  envOr("S2A_LISTEN_ADDR", ":8080"),
+		BasePath:    os.Getenv("S2A_BASE_PATH"),
 		Sub2APIDSN:  os.Getenv("S2A_SUB2API_DSN"),
 		PublicToken: os.Getenv("S2A_PUBLIC_TOKEN"),
 	}
@@ -30,6 +33,11 @@ func Load() (*Config, error) {
 	}
 	if cfg.PublicToken == "" {
 		return nil, fmt.Errorf("S2A_PUBLIC_TOKEN is required")
+	}
+	if cfg.BasePath != "" {
+		if !strings.HasPrefix(cfg.BasePath, "/") || strings.HasSuffix(cfg.BasePath, "/") {
+			return nil, fmt.Errorf("invalid S2A_BASE_PATH %q: must start with / and not end with /", cfg.BasePath)
+		}
 	}
 
 	loc, err := time.LoadLocation(envOr("S2A_BILLING_TIMEZONE", "Asia/Singapore"))

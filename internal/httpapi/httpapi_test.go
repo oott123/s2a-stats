@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"s2astats/internal/stats"
@@ -44,7 +45,7 @@ func do(t *testing.T, h http.Handler, method, target string, header map[string]s
 }
 
 func TestHealthzNoAuth(t *testing.T) {
-	h := New(&fakeSvc{}, testToken).Handler()
+	h := New(&fakeSvc{}, testToken, "").Handler()
 	rec := do(t, h, "GET", "/healthz", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("healthz code = %d, want 200", rec.Code)
@@ -52,7 +53,7 @@ func TestHealthzNoAuth(t *testing.T) {
 }
 
 func TestAuth(t *testing.T) {
-	h := New(&fakeSvc{}, testToken).Handler()
+	h := New(&fakeSvc{}, testToken, "").Handler()
 	tests := []struct {
 		name   string
 		target string
@@ -75,8 +76,43 @@ func TestAuth(t *testing.T) {
 	}
 }
 
+func TestBasePath(t *testing.T) {
+	h := New(&fakeSvc{}, testToken, "/stats").Handler()
+	tests := []struct {
+		name   string
+		target string
+		header map[string]string
+		want   int
+	}{
+		{"前端首页", "/stats/", nil, http.StatusOK},
+		{"无尾斜杠重定向", "/stats", nil, http.StatusMovedPermanently},
+		{"前缀下的 API", "/stats/v1/accounts", map[string]string{"Authorization": "Bearer " + testToken}, http.StatusOK},
+		{"根路径 API 不存在", "/v1/accounts", map[string]string{"Authorization": "Bearer " + testToken}, http.StatusNotFound},
+		{"healthz 仍在根", "/healthz", nil, http.StatusOK},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := do(t, h, "GET", tt.target, tt.header)
+			if rec.Code != tt.want {
+				t.Errorf("%s: code = %d, want %d", tt.target, rec.Code, tt.want)
+			}
+		})
+	}
+}
+
+func TestIndexServed(t *testing.T) {
+	h := New(&fakeSvc{}, testToken, "").Handler()
+	rec := do(t, h, "GET", "/", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("index code = %d, want 200", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("content-type = %q, want text/html", ct)
+	}
+}
+
 func TestAccountID(t *testing.T) {
-	h := New(&fakeSvc{}, testToken).Handler()
+	h := New(&fakeSvc{}, testToken, "").Handler()
 	tests := []struct {
 		id   string
 		want int
@@ -111,7 +147,7 @@ func TestMonthValidation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		fake := &fakeSvc{}
-		h := New(fake, testToken).Handler()
+		h := New(fake, testToken, "").Handler()
 		rec := do(t, h, "GET", "/v1/accounts/1/monthly-usage?token="+testToken+"&month="+tt.month, nil)
 		if rec.Code != tt.want {
 			t.Errorf("month %q: code = %d, want %d", tt.month, rec.Code, tt.want)
@@ -126,7 +162,7 @@ func TestMonthValidation(t *testing.T) {
 }
 
 func TestErrorEnvelope(t *testing.T) {
-	h := New(&fakeSvc{}, testToken).Handler()
+	h := New(&fakeSvc{}, testToken, "").Handler()
 	rec := do(t, h, "GET", "/v1/accounts", nil)
 	var body map[string]string
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {

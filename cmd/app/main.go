@@ -45,7 +45,7 @@ func run() error {
 	svc := stats.New(st, cache.New(), cfg.BillingLoc, cfg.CacheTTL)
 	srv := &http.Server{
 		Addr:    cfg.ListenAddr,
-		Handler: httpapi.New(svc, cfg.PublicToken).Handler(),
+		Handler: httpapi.New(svc, cfg.PublicToken, cfg.BasePath).Handler(),
 	}
 
 	errCh := make(chan error, 1)
