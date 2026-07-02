@@ -17,6 +17,7 @@
     --ok: #16a34a;
     --warn: #d97706;
     --bad: #dc2626;
+    --meter-reset: #d1d5db;
   }
   /* 深色调色板 */
   :root[data-theme="dark"], .dark-palette {
@@ -30,6 +31,7 @@
     --ok: #4ade80;
     --warn: #fbbf24;
     --bad: #f87171;
+    --meter-reset: #4b5563;
   }
   /* 未显式选择时跟随系统 */
   @media (prefers-color-scheme: dark) {
@@ -44,6 +46,7 @@
       --ok: #4ade80;
       --warn: #fbbf24;
       --bad: #f87171;
+      --meter-reset: #4b5563;
     }
   }
   * { box-sizing: border-box; }
@@ -120,6 +123,7 @@
   .bar > span { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
   .bar > span.warn { background: var(--warn); }
   .bar > span.bad { background: var(--bad); }
+  .bar > span.reset-low { background: var(--meter-reset); }
   .reset {
     display: flex;
     justify-content: space-between;
@@ -269,7 +273,8 @@
   function meter(label, w) {
     if (!w) return el("div", { class: "na", text: label + "：无采样" });
     const pct = Math.max(0, Math.min(1, w.utilization)) * 100;
-    const cls = pct >= 90 ? "bad" : pct >= 70 ? "warn" : "";
+    const reset = new Date(w.resets_at).getTime() < Date.now();
+    const cls = reset ? "reset-low" : pct >= 90 ? "bad" : pct >= 70 ? "warn" : "";
     const fill = el("span", { class: cls });
     fill.style.width = pct.toFixed(1) + "%";
     return el("div", { class: "meter" }, [
