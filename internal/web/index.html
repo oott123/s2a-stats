@@ -17,7 +17,6 @@
     --ok: #16a34a;
     --warn: #d97706;
     --bad: #dc2626;
-    --indicator: #a855f7;
     --meter-reset: #d1d5db;
   }
   /* 深色调色板 */
@@ -32,7 +31,6 @@
     --ok: #4ade80;
     --warn: #fbbf24;
     --bad: #f87171;
-    --indicator: #a78bfa;
     --meter-reset: #4b5563;
   }
   /* 未显式选择时跟随系统 */
@@ -48,7 +46,6 @@
       --ok: #4ade80;
       --warn: #fbbf24;
       --bad: #f87171;
-      --indicator: #a78bfa;
       --meter-reset: #4b5563;
     }
   }
@@ -123,12 +120,12 @@
   }
   .meter-label b { color: var(--text); font-weight: 600; }
   .bar { position: relative; height: 6px; background: var(--surface-2); border-radius: 999px; }
-  .bar > span { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+  .bar > span { display: block; height: 100%; background: var(--ok); border-radius: 3px; }
   .bar > span.warn { background: var(--warn); }
   .bar > span.bad { background: var(--bad); }
   .bar > span.reset-low { background: var(--meter-reset); }
   .bar-indicator { position: absolute; left: 0; top: 0; bottom: 0; width: 0; z-index: 1; }
-  .bar-indicator::after { content: ''; position: absolute; left: 50%; bottom: -6px; transform: translateX(-50%); width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 6px solid var(--indicator); }
+  .bar-indicator::after { content: ''; position: absolute; left: 50%; bottom: -6px; transform: translateX(-50%); width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 6px solid var(--accent); }
   .reset {
     display: flex;
     justify-content: space-between;
@@ -298,7 +295,7 @@
       el("div", { class: "bar" }, [fill, indicator]),
       el("div", { class: "reset" }, [
         el("span", { text: "重置于 " + fmtTime(w.resets_at) }),
-        el("span", { text: relReset(w.resets_at), style: "color: var(--indicator);" }),
+        el("span", { text: relReset(w.resets_at), style: "color: var(--accent);" }),
       ]),
     ]);
   }
