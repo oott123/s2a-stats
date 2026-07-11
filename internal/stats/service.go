@@ -13,12 +13,14 @@ import (
 const (
 	fiveHourWindow = 5 * time.Hour
 	sevenDayWindow = 7 * 24 * time.Hour
+	fableModel     = "claude-fable-5"
 )
 
 // dataStore 是 stats 依赖的只读取数接口（便于测试替换）。
 type dataStore interface {
 	AnthropicAccountWindows(ctx context.Context) ([]store.AccountWindowRow, error)
 	UserStandardCost(ctx context.Context, accountID int64, from, to time.Time) ([]store.UserCost, error)
+	UserStandardCostByModel(ctx context.Context, accountID int64, from, to time.Time, model string) ([]store.UserCost, error)
 }
 
 // Service 提供三个公共统计端点的业务逻辑。
@@ -51,6 +53,7 @@ type AccountDTO struct {
 	SampledAt *time.Time `json:"sampled_at"`
 	FiveHour  *WindowDTO `json:"five_hour"`
 	SevenDay  *WindowDTO `json:"seven_day"`
+	Fable     *WindowDTO `json:"fable,omitempty"`
 }
 
 // WindowDTO 是 GET /v1/accounts 中单个窗口的采样使用率与重置时刻。
@@ -61,9 +64,10 @@ type WindowDTO struct {
 
 // WindowUsageResponse 是 GET /v1/accounts/{id}/window-usage 的响应体。
 type WindowUsageResponse struct {
-	AccountID int64          `json:"account_id"`
-	FiveHour  WindowUsageDTO `json:"five_hour"`
-	SevenDay  WindowUsageDTO `json:"seven_day"`
+	AccountID     int64          `json:"account_id"`
+	FiveHour      WindowUsageDTO `json:"five_hour"`
+	SevenDay      WindowUsageDTO `json:"seven_day"`
+	SevenDayFable WindowUsageDTO `json:"seven_day_fable"`
 }
 
 // WindowUsageDTO 是某窗口内按用户的标准消费。
@@ -113,6 +117,7 @@ func (s *Service) AccountWindows(ctx context.Context) (*AccountsResponse, error)
 			SampledAt: s.inLoc(r.SampledAt),
 			FiveHour:  s.window(r.FiveUtil, r.FiveReset),
 			SevenDay:  s.window(r.SevenUtil, r.SevenReset),
+			Fable:     s.window(r.FableUtil, r.FableReset),
 		})
 	}
 
@@ -150,17 +155,22 @@ func (s *Service) WindowUsage(ctx context.Context, accountID int64) (*WindowUsag
 	now := s.now()
 	resp := &WindowUsageResponse{AccountID: accountID}
 
-	var fiveReset, sevenReset *time.Time
+	var fiveReset, sevenReset, fableReset *time.Time
 	if acct != nil {
 		fiveReset = acct.FiveReset
 		sevenReset = acct.SevenReset
+		fableReset = acct.FableReset
 	}
 
-	resp.FiveHour, err = s.windowUsage(ctx, accountID, fiveReset, fiveHourWindow, now)
+	resp.FiveHour, err = s.windowUsage(ctx, accountID, fiveReset, fiveHourWindow, now, "")
 	if err != nil {
 		return nil, err
 	}
-	resp.SevenDay, err = s.windowUsage(ctx, accountID, sevenReset, sevenDayWindow, now)
+	resp.SevenDay, err = s.windowUsage(ctx, accountID, sevenReset, sevenDayWindow, now, "")
+	if err != nil {
+		return nil, err
+	}
+	resp.SevenDayFable, err = s.windowUsage(ctx, accountID, fableReset, sevenDayWindow, now, fableModel)
 	if err != nil {
 		return nil, err
 	}
@@ -170,12 +180,19 @@ func (s *Service) WindowUsage(ctx context.Context, accountID int64) (*WindowUsag
 }
 
 // windowUsage 计算单个窗口的按用户消费；缺重置时刻 → available:false。
-func (s *Service) windowUsage(ctx context.Context, accountID int64, reset *time.Time, d time.Duration, now time.Time) (WindowUsageDTO, error) {
+// model 非空时仅统计该模型消费。
+func (s *Service) windowUsage(ctx context.Context, accountID int64, reset *time.Time, d time.Duration, now time.Time, model string) (WindowUsageDTO, error) {
 	if reset == nil {
 		return WindowUsageDTO{Available: false, Users: []UserDTO{}}, nil
 	}
 	start := WindowStart(*reset, d)
-	costs, err := s.store.UserStandardCost(ctx, accountID, start, now)
+	var costs []store.UserCost
+	var err error
+	if model == "" {
+		costs, err = s.store.UserStandardCost(ctx, accountID, start, now)
+	} else {
+		costs, err = s.store.UserStandardCostByModel(ctx, accountID, start, now, model)
+	}
 	if err != nil {
 		return WindowUsageDTO{}, err
 	}

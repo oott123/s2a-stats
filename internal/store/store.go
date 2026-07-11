@@ -25,6 +25,8 @@ type AccountWindowRow struct {
 	SevenUtil  *float64   // 7d 窗口使用率（0–1）
 	FiveReset  *time.Time // 5h 窗口重置时刻（= session_window_end）
 	SevenReset *time.Time // 7d 窗口重置时刻
+	FableUtil  *float64   // 7d Fable 窗口使用率（0–1）
+	FableReset *time.Time // 7d Fable 窗口重置时刻
 	SampledAt  *time.Time // 被动采样时刻
 }
 
@@ -60,6 +62,9 @@ SELECT id, name, status,
        (extra->>'passive_usage_7d_utilization')::float8 AS seven_util,
        CASE WHEN extra->>'passive_usage_7d_reset' IS NULL THEN NULL
             ELSE to_timestamp((extra->>'passive_usage_7d_reset')::bigint) END AS seven_reset,
+       (extra->>'passive_usage_7d_oi_utilization')::float8 AS fable_util,
+       CASE WHEN extra->>'passive_usage_7d_oi_reset' IS NULL THEN NULL
+            ELSE to_timestamp((extra->>'passive_usage_7d_oi_reset')::bigint) END AS fable_reset,
        extra->>'passive_usage_sampled_at'               AS sampled_at
 FROM accounts
 WHERE platform = 'anthropic'
@@ -87,6 +92,7 @@ func (s *Store) AnthropicAccountWindows(ctx context.Context) ([]AccountWindowRow
 			&r.FiveReset,
 			&r.FiveUtil, &r.SevenUtil,
 			&r.SevenReset,
+			&r.FableUtil, &r.FableReset,
 			&sampledAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan account window row: %w", err)
@@ -116,12 +122,31 @@ WHERE ul.account_id = $1
 GROUP BY ul.user_id, u.username
 ORDER BY standard_cost DESC`
 
+const userStandardCostByModelSQL = `
+SELECT ul.user_id, u.username, SUM(ul.total_cost)::float8 AS standard_cost
+FROM usage_logs ul
+LEFT JOIN users u ON u.id = ul.user_id
+WHERE ul.account_id = $1
+  AND ul.created_at >= $2
+  AND ul.created_at <  $3
+  AND ul.model = $4
+GROUP BY ul.user_id, u.username
+ORDER BY standard_cost DESC`
+
 // UserStandardCost 返回指定账号在 [from, to) 内按用户聚合的标准消费（需求 2、3 共用）。
 func (s *Store) UserStandardCost(ctx context.Context, accountID int64, from, to time.Time) ([]UserCost, error) {
+	return s.userStandardCost(ctx, userStandardCostSQL, accountID, from, to)
+}
+
+func (s *Store) UserStandardCostByModel(ctx context.Context, accountID int64, from, to time.Time, model string) ([]UserCost, error) {
+	return s.userStandardCost(ctx, userStandardCostByModelSQL, accountID, from, to, model)
+}
+
+func (s *Store) userStandardCost(ctx context.Context, sql string, args ...any) ([]UserCost, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
-	rows, err := s.pool.Query(ctx, userStandardCostSQL, accountID, from, to)
+	rows, err := s.pool.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query user standard cost: %w", err)
 	}

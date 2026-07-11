@@ -43,10 +43,10 @@
       --text: #e6e8ec;
       --muted: #8b909c;
       --accent: #6ea8fe;
-      --ok: #4ade80;
-      --warn: #fbbf24;
-      --bad: #f87171;
-      --meter-reset: #4b5563;
+    --ok: #4ade80;
+    --warn: #fbbf24;
+    --bad: #f87171;
+    --meter-reset: #4b5563;
     }
   }
   * { box-sizing: border-box; }
@@ -147,7 +147,7 @@
   }
   #detail h2 { font-size: 15px; margin: 0 0 4px; }
   #detail .detail-sub { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
-  .windows { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .windows { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px; }
   @media (max-width: 640px) { .windows { grid-template-columns: 1fr; } }
   .window h3 { font-size: 13px; margin: 0 0 2px; }
   .window .range { color: var(--muted); font-size: 11px; margin-bottom: 10px; }
@@ -272,7 +272,7 @@
     app.appendChild(el("div", { class: "notice" + (isError ? " error" : ""), text: msg }));
   }
 
-  function meter(label, w) {
+  function meter(label, w, hideReset) {
     if (!w) return el("div", { class: "na", text: label + "：无采样" });
     const pct = Math.max(0, Math.min(1, w.utilization)) * 100;
     const reset = new Date(w.resets_at).getTime() < Date.now();
@@ -280,24 +280,27 @@
     const fill = el("span", { class: cls });
     fill.style.width = pct.toFixed(1) + "%";
     const resetMs = new Date(w.resets_at).getTime();
-    const durationMs = label === "7 天" ? 7 * 86400 * 1000 : 5 * 3600 * 1000;
+    const durationMs = label.startsWith("7 天") ? 7 * 86400 * 1000 : 5 * 3600 * 1000;
     const windowStartMs = resetMs - durationMs;
     const nowMs = Date.now();
     const elapsed = nowMs - windowStartMs;
     const timeProgress = Math.max(0, Math.min(1, elapsed / durationMs));
     const indicator = el("div", { class: "bar-indicator" });
     indicator.style.left = (timeProgress * 100) + "%";
-    return el("div", { class: "meter" }, [
+    const children = [
       el("div", { class: "meter-label" }, [
         el("span", { text: label }),
         el("b", { text: pct.toFixed(1) + "%" }),
       ]),
       el("div", { class: "bar" }, [fill, indicator]),
-      el("div", { class: "reset" }, [
+    ];
+    if (!hideReset) {
+      children.push(el("div", { class: "reset" }, [
         el("span", { text: "重置于 " + fmtTime(w.resets_at) }),
         el("span", { text: relReset(w.resets_at), style: "color: var(--accent);" }),
-      ]),
-    ]);
+      ]));
+    }
+    return el("div", { class: "meter" }, children);
   }
 
   function userTable(title, win) {
@@ -358,6 +361,7 @@
       detail.appendChild(el("div", { class: "windows" }, [
         userTable("5 小时窗口", data.five_hour),
         userTable("7 天窗口", data.seven_day),
+        userTable("7 天 Fable 窗口", data.seven_day_fable),
       ]));
     }).catch((err) => {
       detail.removeChild(detail.lastChild);
@@ -388,6 +392,7 @@
       if (a.sampled) {
         card.appendChild(meter("5 小时", a.five_hour));
         card.appendChild(meter("7 天", a.seven_day));
+        if (a.fable) card.appendChild(meter("7 天 Fable", a.fable, true));
         card.appendChild(el("div", { class: "sampled", text: "采样于 " + fmtTime(a.sampled_at) }));
       } else {
         card.appendChild(el("div", { class: "na", text: "尚无被动采样数据" }));
