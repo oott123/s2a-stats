@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -55,8 +56,9 @@ func (s *Store) Close() {
 	s.pool.Close()
 }
 
-const anthropicAccountWindowsSQL = `
-SELECT id, name, status,
+const anthropicAccountPredicate = `platform = 'anthropic' AND type = 'oauth' AND deleted_at IS NULL`
+
+const accountWindowColumns = `id, name, status,
        session_window_end,
        (extra->>'session_window_utilization')::float8   AS five_util,
        (extra->>'passive_usage_7d_utilization')::float8 AS seven_util,
@@ -65,12 +67,37 @@ SELECT id, name, status,
        (extra->>'passive_usage_7d_oi_utilization')::float8 AS fable_util,
        CASE WHEN extra->>'passive_usage_7d_oi_reset' IS NULL THEN NULL
             ELSE to_timestamp((extra->>'passive_usage_7d_oi_reset')::bigint) END AS fable_reset,
-       extra->>'passive_usage_sampled_at'               AS sampled_at
-FROM accounts
-WHERE platform = 'anthropic'
-  AND type = 'oauth'
-  AND deleted_at IS NULL
-ORDER BY id`
+       extra->>'passive_usage_sampled_at'               AS sampled_at`
+
+var anthropicAccountWindowsSQL = `SELECT ` + accountWindowColumns +
+	` FROM accounts WHERE ` + anthropicAccountPredicate + ` ORDER BY id`
+
+var anthropicAccountWindowSQL = `SELECT ` + accountWindowColumns +
+	` FROM accounts WHERE id = $1 AND ` + anthropicAccountPredicate
+
+// scanAccountWindowRow 扫描一行账号窗口采样，并解析 sampled_at（RFC3339 文本）。
+func scanAccountWindowRow(rows pgx.Rows) (AccountWindowRow, error) {
+	var r AccountWindowRow
+	var sampledAt *string
+	if err := rows.Scan(
+		&r.ID, &r.Name, &r.Status,
+		&r.FiveReset,
+		&r.FiveUtil, &r.SevenUtil,
+		&r.SevenReset,
+		&r.FableUtil, &r.FableReset,
+		&sampledAt,
+	); err != nil {
+		return AccountWindowRow{}, fmt.Errorf("scan account window row: %w", err)
+	}
+	if sampledAt != nil {
+		t, err := time.Parse(time.RFC3339, *sampledAt)
+		if err != nil {
+			return AccountWindowRow{}, fmt.Errorf("parse passive_usage_sampled_at %q: %w", *sampledAt, err)
+		}
+		r.SampledAt = &t
+	}
+	return r, nil
+}
 
 // AnthropicAccountWindows 返回所有 Anthropic 账号的被动采样窗口数据（需求 1）。
 func (s *Store) AnthropicAccountWindows(ctx context.Context) ([]AccountWindowRow, error) {
@@ -85,24 +112,9 @@ func (s *Store) AnthropicAccountWindows(ctx context.Context) ([]AccountWindowRow
 
 	var out []AccountWindowRow
 	for rows.Next() {
-		var r AccountWindowRow
-		var sampledAt *string
-		if err := rows.Scan(
-			&r.ID, &r.Name, &r.Status,
-			&r.FiveReset,
-			&r.FiveUtil, &r.SevenUtil,
-			&r.SevenReset,
-			&r.FableUtil, &r.FableReset,
-			&sampledAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan account window row: %w", err)
-		}
-		if sampledAt != nil {
-			t, err := time.Parse(time.RFC3339, *sampledAt)
-			if err != nil {
-				return nil, fmt.Errorf("parse passive_usage_sampled_at %q: %w", *sampledAt, err)
-			}
-			r.SampledAt = &t
+		r, err := scanAccountWindowRow(rows)
+		if err != nil {
+			return nil, err
 		}
 		out = append(out, r)
 	}
@@ -110,6 +122,28 @@ func (s *Store) AnthropicAccountWindows(ctx context.Context) ([]AccountWindowRow
 		return nil, fmt.Errorf("iterate account window rows: %w", err)
 	}
 	return out, nil
+}
+
+// AnthropicAccountWindow 返回单个 live Anthropic OAuth 账号的窗口采样数据。
+// 账号不存在或不满足 platform/type/软删筛选时返回 (nil, nil)。
+func (s *Store) AnthropicAccountWindow(ctx context.Context, accountID int64) (*AccountWindowRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+
+	rows, err := s.pool.Query(ctx, anthropicAccountWindowSQL, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("query anthropic account window: %w", err)
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		return nil, rows.Err()
+	}
+	r, err := scanAccountWindowRow(rows)
+	if err != nil {
+		return nil, err
+	}
+	return &r, nil
 }
 
 const userStandardCostSQL = `

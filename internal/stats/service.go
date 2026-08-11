@@ -3,12 +3,16 @@ package stats
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"s2astats/internal/cache"
 	"s2astats/internal/store"
 )
+
+// ErrAccountNotFound 表示目标账号不在 live Anthropic OAuth 账号集合内。
+var ErrAccountNotFound = errors.New("account not found")
 
 const (
 	fiveHourWindow = 5 * time.Hour
@@ -19,6 +23,7 @@ const (
 // dataStore 是 stats 依赖的只读取数接口（便于测试替换）。
 type dataStore interface {
 	AnthropicAccountWindows(ctx context.Context) ([]store.AccountWindowRow, error)
+	AnthropicAccountWindow(ctx context.Context, accountID int64) (*store.AccountWindowRow, error)
 	UserStandardCost(ctx context.Context, accountID int64, from, to time.Time) ([]store.UserCost, error)
 	UserStandardCostByModel(ctx context.Context, accountID int64, from, to time.Time, model string) ([]store.UserCost, error)
 }
@@ -140,37 +145,26 @@ func (s *Service) WindowUsage(ctx context.Context, accountID int64) (*WindowUsag
 		return v.(*WindowUsageResponse), nil
 	}
 
-	rows, err := s.store.AnthropicAccountWindows(ctx)
+	acct, err := s.store.AnthropicAccountWindow(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
-	var acct *store.AccountWindowRow
-	for i := range rows {
-		if rows[i].ID == accountID {
-			acct = &rows[i]
-			break
-		}
+	if acct == nil {
+		return nil, ErrAccountNotFound
 	}
 
 	now := s.now()
 	resp := &WindowUsageResponse{AccountID: accountID}
 
-	var fiveReset, sevenReset, fableReset *time.Time
-	if acct != nil {
-		fiveReset = acct.FiveReset
-		sevenReset = acct.SevenReset
-		fableReset = acct.FableReset
-	}
-
-	resp.FiveHour, err = s.windowUsage(ctx, accountID, fiveReset, fiveHourWindow, now, "")
+	resp.FiveHour, err = s.windowUsage(ctx, accountID, acct.FiveReset, fiveHourWindow, now, "")
 	if err != nil {
 		return nil, err
 	}
-	resp.SevenDay, err = s.windowUsage(ctx, accountID, sevenReset, sevenDayWindow, now, "")
+	resp.SevenDay, err = s.windowUsage(ctx, accountID, acct.SevenReset, sevenDayWindow, now, "")
 	if err != nil {
 		return nil, err
 	}
-	resp.SevenDayFable, err = s.windowUsage(ctx, accountID, fableReset, sevenDayWindow, now, fableModel)
+	resp.SevenDayFable, err = s.windowUsage(ctx, accountID, acct.FableReset, sevenDayWindow, now, fableModel)
 	if err != nil {
 		return nil, err
 	}
@@ -211,6 +205,13 @@ func (s *Service) MonthlyUsage(ctx context.Context, accountID int64, year, month
 	key := fmt.Sprintf("monthly-usage:%d:%04d-%02d", accountID, year, month)
 	if v, ok := s.cache.Get(key); ok {
 		return v.(*MonthlyUsageResponse), nil
+	}
+	acct, err := s.store.AnthropicAccountWindow(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	if acct == nil {
+		return nil, ErrAccountNotFound
 	}
 
 	start, end := BillingCycle(s.loc, year, month)

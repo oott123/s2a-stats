@@ -99,6 +99,10 @@ func (s *Server) handleWindowUsage(w http.ResponseWriter, r *http.Request) {
 	}
 	resp, err := s.svc.WindowUsage(r.Context(), id)
 	if err != nil {
+		if errors.Is(err, stats.ErrAccountNotFound) {
+			writeError(w, http.StatusNotFound, "account not found")
+			return
+		}
 		writeError(w, http.StatusBadGateway, "upstream error")
 		return
 	}
@@ -120,6 +124,10 @@ func (s *Server) handleMonthlyUsage(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := s.svc.MonthlyUsage(r.Context(), id, year, mon)
 	if err != nil {
+		if errors.Is(err, stats.ErrAccountNotFound) {
+			writeError(w, http.StatusNotFound, "account not found")
+			return
+		}
 		writeError(w, http.StatusBadGateway, "upstream error")
 		return
 	}

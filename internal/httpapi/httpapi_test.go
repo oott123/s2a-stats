@@ -15,6 +15,7 @@ type fakeSvc struct {
 	monthlyCalled bool
 	gotYear       int
 	gotMonth      int
+	notFound      bool
 }
 
 func (f *fakeSvc) AccountWindows(context.Context) (*stats.AccountsResponse, error) {
@@ -22,10 +23,16 @@ func (f *fakeSvc) AccountWindows(context.Context) (*stats.AccountsResponse, erro
 }
 
 func (f *fakeSvc) WindowUsage(context.Context, int64) (*stats.WindowUsageResponse, error) {
+	if f.notFound {
+		return nil, stats.ErrAccountNotFound
+	}
 	return &stats.WindowUsageResponse{}, nil
 }
 
 func (f *fakeSvc) MonthlyUsage(_ context.Context, _ int64, year, month int) (*stats.MonthlyUsageResponse, error) {
+	if f.notFound {
+		return nil, stats.ErrAccountNotFound
+	}
 	f.monthlyCalled = true
 	f.gotYear, f.gotMonth = year, month
 	return &stats.MonthlyUsageResponse{}, nil
@@ -170,5 +177,38 @@ func TestErrorEnvelope(t *testing.T) {
 	}
 	if body["error"] != "unauthorized" {
 		t.Errorf("error = %q, want unauthorized", body["error"])
+	}
+}
+func TestAccountNotFound(t *testing.T) {
+	tests := []struct {
+		name   string
+		target string
+	}{
+		{"window-usage", "/v1/accounts/123/window-usage?token=" + testToken},
+		{"monthly-usage", "/v1/accounts/123/monthly-usage?month=2026-06&token=" + testToken},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := New(&fakeSvc{notFound: true}, testToken, "").Handler()
+			rec := do(t, h, "GET", tt.target, nil)
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("code = %d, want 404", rec.Code)
+			}
+			var body map[string]string
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if body["error"] != "account not found" {
+				t.Errorf("error = %q, want %q", body["error"], "account not found")
+			}
+		})
+	}
+}
+
+func TestAccountNotFoundMonthInvalid(t *testing.T) {
+	h := New(&fakeSvc{notFound: true}, testToken, "").Handler()
+	rec := do(t, h, "GET", "/v1/accounts/123/monthly-usage?month=2026-13&token="+testToken, nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("code = %d, want 400 (month validation precedes account check)", rec.Code)
 	}
 }

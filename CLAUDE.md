@@ -22,7 +22,7 @@ Request flow: `httpapi` (auth + routing + JSON) → `stats.Service` (time-window
 
 - `cmd/app/main.go` — wiring + graceful shutdown. `import _ "time/tzdata"` embeds the tz database so containers without zoneinfo still resolve `Asia/Singapore`.
 - `internal/config` — env-only config; strict validation, fail-fast on missing/invalid.
-- `internal/store` — the **only** package that touches the DB. Two queries: `AnthropicAccountWindows` (req 1) and `UserStandardCost` (reqs 2 & 3, shared). pgxpool.
+- `internal/store` — the **only** package that touches the DB. Three queries: `AnthropicAccountWindows` / `AnthropicAccountWindow` (shared SQL predicate + column list, single-account variant is the `{id}` existence check) and `UserStandardCost` (reqs 2 & 3, shared). pgxpool.
 - `internal/stats` — business logic + DTOs. `Service` takes a `dataStore` interface (not the concrete store) so it's unit-testable; injects `now func() time.Time` for the same reason. Per-endpoint TTL cache keyed by endpoint+normalized params.
 - `internal/httpapi` — Go 1.22+ `ServeMux` method+path patterns, no web framework. `auth` middleware accepts `Authorization: Bearer <token>` or `?token=`, compared with `subtle.ConstantTimeCompare`. `/healthz` is unauthenticated.
 - `internal/cache` — generic map+RWMutex TTL cache, lazy expiry on read.
@@ -30,7 +30,7 @@ Request flow: `httpapi` (auth + routing + JSON) → `stats.Service` (time-window
 ### Domain rules that aren't obvious from the code
 
 - **Standard cost** = `SUM(usage_logs.total_cost)` (raw billed USD, no group/account multipliers). Aggregation dimension is **user + account**; sub2api's Group entity is deliberately ignored.
-- **Account selection (req 1)** filters `platform = 'anthropic' AND type = 'oauth' AND deleted_at IS NULL`. Only Anthropic OAuth accounts — api_key/setup-token/cookie types are excluded. `accounts` is soft-deleted (sub2api's `SoftDeleteMixin`: `deleted_at IS NULL` = live).
+- **Account selection** filters `platform = 'anthropic' AND type = 'oauth' AND deleted_at IS NULL` — the single account set shared by all three endpoints (`GET /v1/accounts`, `{id}/window-usage`, `{id}/monthly-usage`). Only Anthropic OAuth accounts — api_key/setup-token/cookie types are excluded. `accounts` is soft-deleted (sub2api's `SoftDeleteMixin`: `deleted_at IS NULL` = live). The two `{id}` endpoints return `404 account not found` for ids outside this set, identical for "does not exist" and "fails the filter" so the API cannot probe non-Anthropic accounts.
 - **5h / 7d windows (req 2)** align to the account's Anthropic reset instants from passive sampling: `window_start = reset - 5h/7d`, `window_end = now`. The 5h reset is the `session_window_end` column; the 7d reset lives in `extra` JSONB (`passive_usage_7d_reset`, unix seconds). A window with no reset → `available:false`.
 - **Billing cycle (req 3)** is `[the 10th 00:00, next month's 10th 00:00)` evaluated in `Asia/Singapore` (UTC+8, no DST), via `BillingCycle` in `stats/windows.go`.
 - `usage_logs` is append-only (no soft delete). Its `LEFT JOIN users` is for display only — historical cost stays attributed even to soft-deleted users, so do **not** add a `deleted_at` filter there.
