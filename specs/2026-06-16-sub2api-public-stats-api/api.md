@@ -15,7 +15,7 @@
 { "error": "unauthorized" }
 ```
 
-错误响应统一形如 `{ "error": "<message>" }`，HTTP 状态码：入参非法 `400`、账号不在 Anthropic OAuth 集合内 `404`、回源失败 `502`、未鉴权 `401`。
+错误响应统一形如 `{ "error": "<message>" }`，HTTP 状态码：入参非法 `400`、账号不在 Anthropic OAuth / Setup Token 集合内 `404`、回源失败 `502`、未鉴权 `401`。
 
 ---
 
@@ -59,7 +59,7 @@
 
 需求 2。指定账号在其 5h、7d 窗口内，按用户的标准消费。窗口起点对齐该账号 Anthropic 重置窗口（`resets_at - 5h/7d`），终点为当前时间。
 
-- 路径参数 `id`：账号数字 ID，必须是 live 的 Anthropic OAuth 账号（与 `GET /v1/accounts` 返回的集合一致）。
+- 路径参数 `id`：账号数字 ID，必须是 live 的 Anthropic OAuth / Setup Token 账号（与 `GET /v1/accounts` 返回的集合一致）。
 
 **响应 200**
 
@@ -91,7 +91,7 @@
 - 某窗口无被动采样重置时间 → `available:false`，无 `window_start/window_end`，`users` 为空数组。
 - `username` 为空的用户回退为 `user-<id>`。
 
-`{id}` 不是 live 的 Anthropic OAuth 账号（不存在 / platform 非 anthropic / type 非 oauth / 已软删）→ **404**：
+`{id}` 不是 live 的 Anthropic OAuth / Setup Token 账号（不存在 / platform 非 anthropic / type 既非 oauth 也非 setup-token / 已软删）→ **404**：
 
 ```json
 { "error": "account not found" }
@@ -103,7 +103,7 @@
 
 需求 3。指定账号在指定账期内，按用户的标准消费。账期 = 以 Asia/Singapore 计的 `[当月 10 日 00:00, 次月 10 日 00:00)`。
 
-- 路径参数 `id`：账号数字 ID，必须是 live 的 Anthropic OAuth 账号（与 `GET /v1/accounts` 返回的集合一致）。
+- 路径参数 `id`：账号数字 ID，必须是 live 的 Anthropic OAuth / Setup Token 账号（与 `GET /v1/accounts` 返回的集合一致）。
 - 查询参数 `month`：`YYYY-MM`（必填，严格校验）。`month=2026-06` 表示 2026-06-10 00:00 起的账期。
 
 **响应 200**
@@ -131,7 +131,7 @@
 { "error": "invalid month, expected YYYY-MM" }
 ```
 
-`{id}` 不是 live 的 Anthropic OAuth 账号 → **404**：
+`{id}` 不是 live 的 Anthropic OAuth / Setup Token 账号 → **404**：
 
 ```json
 { "error": "account not found" }

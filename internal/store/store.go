@@ -56,7 +56,7 @@ func (s *Store) Close() {
 	s.pool.Close()
 }
 
-const anthropicAccountPredicate = `platform = 'anthropic' AND type = 'oauth' AND deleted_at IS NULL`
+const anthropicAccountPredicate = `platform = 'anthropic' AND type IN ('oauth', 'setup-token') AND deleted_at IS NULL`
 
 const accountWindowColumns = `id, name, status,
        session_window_end,
