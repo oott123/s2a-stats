@@ -126,11 +126,12 @@ func TestWindowUsagePartialSampling(t *testing.T) {
 		ID:         123,
 		FiveReset:  &reset,
 		SevenReset: nil,
-		FableReset: &reset,
+		FableReset: nil,
 	}
 	fake := &fakeStore{accounts: map[int64]*store.AccountWindowRow{123: acct}}
 	svc := newTestService(t, fake)
-	svc.now = func() time.Time { return time.Date(2026, 6, 16, 18, 30, 0, 0, time.UTC) }
+	now := time.Date(2026, 6, 16, 18, 30, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
 
 	resp, err := svc.WindowUsage(context.Background(), 123)
 	if err != nil {
@@ -145,8 +146,48 @@ func TestWindowUsagePartialSampling(t *testing.T) {
 	if !resp.FiveHour.Available {
 		t.Errorf("five_hour available = false, want true")
 	}
-	if len(fake.costCalls) != 2 {
-		t.Errorf("cost calls = %d, want 2 (seven_day must not query)", len(fake.costCalls))
+
+	// Fable 窗口缺重置采样，且 SevenReset 也缺失 → 无可回退窗口，保持不可用且不查库。
+	if resp.SevenDayFable.Available {
+		t.Errorf("seven_day_fable available = true, want false (no FableReset, no SevenReset to fall back to)")
+	}
+	if len(fake.costCalls) != 1 {
+		t.Errorf("cost calls = %d, want 1 (seven_day/seven_day_fable must not query)", len(fake.costCalls))
+	}
+}
+
+func TestWindowUsageFableFallbackToSevenDay(t *testing.T) {
+	reset := time.Date(2026, 6, 16, 12, 30, 0, 0, time.UTC)
+	acct := &store.AccountWindowRow{
+		ID:         123,
+		FiveReset:  &reset,
+		SevenReset: &reset,
+		FableReset: nil,
+	}
+	fake := &fakeStore{accounts: map[int64]*store.AccountWindowRow{123: acct}}
+	svc := newTestService(t, fake)
+	now := time.Date(2026, 6, 16, 18, 30, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+
+	resp, err := svc.WindowUsage(context.Background(), 123)
+	if err != nil {
+		t.Fatalf("err = %v, want nil", err)
+	}
+	if !resp.SevenDay.Available {
+		t.Fatalf("seven_day available = false, want true")
+	}
+	if !resp.SevenDayFable.Available {
+		t.Fatalf("seven_day_fable available = false, want true (fallback to seven_day window)")
+	}
+	if got := resp.SevenDayFable.WindowStart; got == nil || !got.Equal(reset.Add(-sevenDayWindow)) {
+		t.Errorf("seven_day_fable window_start = %v, want %v", got, reset.Add(-sevenDayWindow))
+	}
+	if len(fake.costCalls) != 3 {
+		t.Fatalf("cost calls = %d, want 3", len(fake.costCalls))
+	}
+	fable := fake.costCalls[2]
+	if fable.model != fableModel || !fable.from.Equal(reset.Add(-sevenDayWindow)) || !fable.to.Equal(now) {
+		t.Errorf("fable cost call = %+v, want model=%q from=%v to=%v", fable, fableModel, reset.Add(-sevenDayWindow), now)
 	}
 }
 

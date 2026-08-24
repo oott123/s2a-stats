@@ -164,7 +164,13 @@ func (s *Service) WindowUsage(ctx context.Context, accountID int64) (*WindowUsag
 	if err != nil {
 		return nil, err
 	}
-	resp.SevenDayFable, err = s.windowUsage(ctx, accountID, acct.FableReset, sevenDayWindow, now, fableModel)
+	fableReset := acct.FableReset
+	if fableReset == nil {
+		// Fable 窗口缺重置采样时回退为普通 7d 窗口（SevenReset）；
+		// SevenReset 也缺失时与 seven_day 一致保持 available:false。
+		fableReset = acct.SevenReset
+	}
+	resp.SevenDayFable, err = s.windowUsage(ctx, accountID, fableReset, sevenDayWindow, now, fableModel)
 	if err != nil {
 		return nil, err
 	}

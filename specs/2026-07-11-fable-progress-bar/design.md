@@ -63,7 +63,7 @@ Anthropic 为 Fable 模型家族（`claude-fable-5` 及其变体）提供了一�
 
 | 场景 | 行为 |
 |------|------|
-| `passive_usage_7d_oi_reset` 缺失 | `AccountDTO.Fable` 为 `nil`（同 5h/7d 的无采样处理）；`WindowUsageDTO` 返回 `available:false`。
+| `passive_usage_7d_oi_reset` 缺失 | `AccountDTO.Fable` 为 `nil`（同 5h/7d 的无采样处理）；`WindowUsageDTO` 回退为普通 7d 窗口（`SevenReset`，`available:true`）；`SevenReset` 也缺失时保持 `available:false`（见 2026-08-24-fable-window-fallback）。 |
 | 窗口已重置（`now > resets_at`） | 时间线位于 100%。
 | 首次接入后旧缓存命中 | 旧缓存数据结构不含 `SevenDayFable`；缓存 TTL 到期后自然刷新为新结构。 |
 
