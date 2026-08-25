@@ -57,7 +57,7 @@
     color: var(--text);
     line-height: 1.5;
   }
-  #theme-toggle {
+  #theme-toggle, #refresh-btn {
     position: fixed;
     top: 16px;
     right: 16px;
@@ -73,8 +73,12 @@
     cursor: pointer;
     transition: border-color .15s, color .15s;
   }
-  #theme-toggle:hover { border-color: var(--accent); color: var(--accent); }
-  #theme-toggle svg { width: 18px; height: 18px; display: block; }
+  #refresh-btn { top: 62px; }
+  #refresh-btn:disabled { opacity: .5; cursor: default; }
+  #theme-toggle:hover, #refresh-btn:hover { border-color: var(--accent); color: var(--accent); }
+  #refresh-btn.spin svg { animation: spin .8s linear infinite; }
+  @keyframes spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+  #theme-toggle svg, #refresh-btn svg { width: 18px; height: 18px; display: block; }
   main { max-width: 980px; margin: 0 auto; padding: 24px; }
   .grid {
     display: grid;
@@ -173,6 +177,7 @@
 </head>
 <body>
 <button id="theme-toggle" type="button" title="切换深色 / 浅色" aria-label="切换主题"></button>
+<button id="refresh-btn" type="button" title="刷新数据" aria-label="刷新数据"></button>
 <main>
   <div id="app"><div class="spinner">加载中…</div></div>
 </main>
@@ -183,9 +188,11 @@
 
   // ---- 主题切换：默认跟随系统，显式选择后写入 localStorage ----
   const themeBtn = document.getElementById("theme-toggle");
+  const refreshBtn = document.getElementById("refresh-btn");
   // 深色态显示太阳（点击转浅色），浅色态显示月亮（点击转深色）。
   const SUN_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>';
   const MOON_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+  const REFRESH_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>';
   function systemDark() {
     return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
   }
@@ -347,6 +354,7 @@
   }
 
   let selectedCard = null;
+  let selectedAccountID = null;
 
   function renderDetail(acct, container) {
     container.innerHTML = "";
@@ -401,6 +409,7 @@
       card.addEventListener("click", () => {
         if (selectedCard) selectedCard.classList.remove("selected");
         selectedCard = card;
+        selectedAccountID = a.id;
         card.classList.add("selected");
         renderDetail(a, detailHost);
         detailHost.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -410,16 +419,43 @@
 
     app.appendChild(grid);
     app.appendChild(detailHost);
+
+    // 刷新后恢复选中：按 id 找到对应卡片，重新选中并刷新其详情。
+    if (selectedAccountID !== null) {
+      const idx = accounts.findIndex((a) => a.id === selectedAccountID);
+      if (idx >= 0) {
+        selectedCard = grid.children[idx];
+        selectedCard.classList.add("selected");
+        renderDetail(accounts[idx], detailHost);
+      } else {
+        selectedAccountID = null; // 账号已不存在
+        selectedCard = null;
+      }
+    }
   }
+
+  // 刷新账号列表；存在选中账号时，选中状态与其详情随之刷新。
+  function refresh() {
+    if (refreshBtn.disabled) return;
+    refreshBtn.disabled = true;
+    refreshBtn.classList.add("spin");
+    api("v1/accounts")
+      .then((data) => renderAccounts(data.accounts || []))
+      .catch((err) => notice(err.message, true))
+      .then(() => {
+        refreshBtn.disabled = false;
+        refreshBtn.classList.remove("spin");
+      });
+  }
+  refreshBtn.addEventListener("click", refresh);
 
   if (!token) {
     notice("URL 中缺少 token，请使用 ?token=… 访问", true);
     return;
   }
 
-  api("v1/accounts")
-    .then((data) => renderAccounts(data.accounts || []))
-    .catch((err) => notice(err.message, true));
+  refreshBtn.innerHTML = REFRESH_ICON;
+  refresh();
 })();
 </script>
 </body>
