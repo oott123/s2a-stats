@@ -70,7 +70,7 @@ const accountWindowColumns = `id, name, status,
        extra->>'passive_usage_sampled_at'               AS sampled_at`
 
 var anthropicAccountWindowsSQL = `SELECT ` + accountWindowColumns +
-	` FROM accounts WHERE ` + anthropicAccountPredicate + ` ORDER BY id`
+	` FROM accounts WHERE ` + anthropicAccountPredicate + ` ORDER BY name`
 
 var anthropicAccountWindowSQL = `SELECT ` + accountWindowColumns +
 	` FROM accounts WHERE id = $1 AND ` + anthropicAccountPredicate
