@@ -20,7 +20,7 @@ const (
 )
 
 // fableModels 是计入「7 天 Fable 窗口」的模型集合，精确匹配 usage_logs.model。
-var fableModels = []string{"claude-fable-5", "claude-fable-5.1"}
+var fableModels = []string{"claude-fable-5", "claude-fable-5-1"}
 
 // dataStore 是 stats 依赖的只读取数接口（便于测试替换）。
 type dataStore interface {
