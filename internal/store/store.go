@@ -147,7 +147,7 @@ func (s *Store) AnthropicAccountWindow(ctx context.Context, accountID int64) (*A
 }
 
 const userStandardCostSQL = `
-SELECT ul.user_id, u.username, SUM(ul.total_cost)::float8 AS standard_cost
+SELECT ul.user_id, u.username, SUM(ul.actual_cost)::float8 AS standard_cost
 FROM usage_logs ul
 LEFT JOIN users u ON u.id = ul.user_id
 WHERE ul.account_id = $1
@@ -157,7 +157,7 @@ GROUP BY ul.user_id, u.username
 ORDER BY standard_cost DESC`
 
 const userStandardCostByModelsSQL = `
-SELECT ul.user_id, u.username, SUM(ul.total_cost)::float8 AS standard_cost
+SELECT ul.user_id, u.username, SUM(ul.actual_cost)::float8 AS standard_cost
 FROM usage_logs ul
 LEFT JOIN users u ON u.id = ul.user_id
 WHERE ul.account_id = $1
