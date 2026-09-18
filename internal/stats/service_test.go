@@ -3,6 +3,7 @@ package stats
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -13,7 +14,7 @@ import (
 type costCall struct {
 	accountID int64
 	from, to  time.Time
-	model     string
+	models    []string
 }
 
 type fakeStore struct {
@@ -41,8 +42,8 @@ func (f *fakeStore) UserStandardCost(_ context.Context, accountID int64, from, t
 	return f.costs, f.err
 }
 
-func (f *fakeStore) UserStandardCostByModel(_ context.Context, accountID int64, from, to time.Time, model string) ([]store.UserCost, error) {
-	f.costCalls = append(f.costCalls, costCall{accountID: accountID, from: from, to: to, model: model})
+func (f *fakeStore) UserStandardCostByModels(_ context.Context, accountID int64, from, to time.Time, models []string) ([]store.UserCost, error) {
+	f.costCalls = append(f.costCalls, costCall{accountID: accountID, from: from, to: to, models: models})
 	return f.costs, f.err
 }
 
@@ -115,8 +116,8 @@ func TestWindowUsageAccountFound(t *testing.T) {
 	if len(fake.costCalls) != 3 {
 		t.Fatalf("cost calls = %d, want 3", len(fake.costCalls))
 	}
-	if fake.costCalls[2].model != fableModel {
-		t.Errorf("fable call model = %q, want %q", fake.costCalls[2].model, fableModel)
+	if got := fake.costCalls[2].models; !slices.Equal(got, []string{"claude-fable-5", "claude-fable-5.1"}) {
+		t.Errorf("fable call models = %q, want [claude-fable-5 claude-fable-5.1]", got)
 	}
 }
 
@@ -185,9 +186,9 @@ func TestWindowUsageFableFallbackToSevenDay(t *testing.T) {
 	if len(fake.costCalls) != 3 {
 		t.Fatalf("cost calls = %d, want 3", len(fake.costCalls))
 	}
-	fable := fake.costCalls[2]
-	if fable.model != fableModel || !fable.from.Equal(reset.Add(-sevenDayWindow)) || !fable.to.Equal(now) {
-		t.Errorf("fable cost call = %+v, want model=%q from=%v to=%v", fable, fableModel, reset.Add(-sevenDayWindow), now)
+	if fable := fake.costCalls[2]; !slices.Equal(fable.models, []string{"claude-fable-5", "claude-fable-5.1"}) ||
+		!fable.from.Equal(reset.Add(-sevenDayWindow)) || !fable.to.Equal(now) {
+		t.Errorf("fable cost call = %+v, want models=[claude-fable-5 claude-fable-5.1] from=%v to=%v", fable, reset.Add(-sevenDayWindow), now)
 	}
 }
 
@@ -212,8 +213,8 @@ func TestMonthlyUsageAccountFound(t *testing.T) {
 		t.Fatalf("cost calls = %d, want 1", len(fake.costCalls))
 	}
 	call := fake.costCalls[0]
-	if call.accountID != 123 || !call.from.Equal(wantStart) || !call.to.Equal(wantEnd) || call.model != "" {
-		t.Errorf("cost call = %+v, want accountID=123 from=%v to=%v model=\"\"", call, wantStart, wantEnd)
+	if call.accountID != 123 || !call.from.Equal(wantStart) || !call.to.Equal(wantEnd) || len(call.models) != 0 {
+		t.Errorf("cost call = %+v, want accountID=123 from=%v to=%v no model filter", call, wantStart, wantEnd)
 	}
 }
 

@@ -17,15 +17,17 @@ var ErrAccountNotFound = errors.New("account not found")
 const (
 	fiveHourWindow = 5 * time.Hour
 	sevenDayWindow = 7 * 24 * time.Hour
-	fableModel     = "claude-fable-5"
 )
+
+// fableModels 是计入「7 天 Fable 窗口」的模型集合，精确匹配 usage_logs.model。
+var fableModels = []string{"claude-fable-5", "claude-fable-5.1"}
 
 // dataStore 是 stats 依赖的只读取数接口（便于测试替换）。
 type dataStore interface {
 	AnthropicAccountWindows(ctx context.Context) ([]store.AccountWindowRow, error)
 	AnthropicAccountWindow(ctx context.Context, accountID int64) (*store.AccountWindowRow, error)
 	UserStandardCost(ctx context.Context, accountID int64, from, to time.Time) ([]store.UserCost, error)
-	UserStandardCostByModel(ctx context.Context, accountID int64, from, to time.Time, model string) ([]store.UserCost, error)
+	UserStandardCostByModels(ctx context.Context, accountID int64, from, to time.Time, models []string) ([]store.UserCost, error)
 }
 
 // Service 提供三个公共统计端点的业务逻辑。
@@ -156,11 +158,11 @@ func (s *Service) WindowUsage(ctx context.Context, accountID int64) (*WindowUsag
 	now := s.now()
 	resp := &WindowUsageResponse{AccountID: accountID}
 
-	resp.FiveHour, err = s.windowUsage(ctx, accountID, acct.FiveReset, fiveHourWindow, now, "")
+	resp.FiveHour, err = s.windowUsage(ctx, accountID, acct.FiveReset, fiveHourWindow, now, nil)
 	if err != nil {
 		return nil, err
 	}
-	resp.SevenDay, err = s.windowUsage(ctx, accountID, acct.SevenReset, sevenDayWindow, now, "")
+	resp.SevenDay, err = s.windowUsage(ctx, accountID, acct.SevenReset, sevenDayWindow, now, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +172,7 @@ func (s *Service) WindowUsage(ctx context.Context, accountID int64) (*WindowUsag
 		// SevenReset 也缺失时与 seven_day 一致保持 available:false。
 		fableReset = acct.SevenReset
 	}
-	resp.SevenDayFable, err = s.windowUsage(ctx, accountID, fableReset, sevenDayWindow, now, fableModel)
+	resp.SevenDayFable, err = s.windowUsage(ctx, accountID, fableReset, sevenDayWindow, now, fableModels)
 	if err != nil {
 		return nil, err
 	}
@@ -180,18 +182,18 @@ func (s *Service) WindowUsage(ctx context.Context, accountID int64) (*WindowUsag
 }
 
 // windowUsage 计算单个窗口的按用户消费；缺重置时刻 → available:false。
-// model 非空时仅统计该模型消费。
-func (s *Service) windowUsage(ctx context.Context, accountID int64, reset *time.Time, d time.Duration, now time.Time, model string) (WindowUsageDTO, error) {
+// models 非空时仅统计这些模型（精确匹配）的消费。
+func (s *Service) windowUsage(ctx context.Context, accountID int64, reset *time.Time, d time.Duration, now time.Time, models []string) (WindowUsageDTO, error) {
 	if reset == nil {
 		return WindowUsageDTO{Available: false, Users: []UserDTO{}}, nil
 	}
 	start := WindowStart(*reset, d)
 	var costs []store.UserCost
 	var err error
-	if model == "" {
+	if len(models) == 0 {
 		costs, err = s.store.UserStandardCost(ctx, accountID, start, now)
 	} else {
-		costs, err = s.store.UserStandardCostByModel(ctx, accountID, start, now, model)
+		costs, err = s.store.UserStandardCostByModels(ctx, accountID, start, now, models)
 	}
 	if err != nil {
 		return WindowUsageDTO{}, err

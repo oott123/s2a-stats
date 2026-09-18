@@ -156,14 +156,14 @@ WHERE ul.account_id = $1
 GROUP BY ul.user_id, u.username
 ORDER BY standard_cost DESC`
 
-const userStandardCostByModelSQL = `
+const userStandardCostByModelsSQL = `
 SELECT ul.user_id, u.username, SUM(ul.total_cost)::float8 AS standard_cost
 FROM usage_logs ul
 LEFT JOIN users u ON u.id = ul.user_id
 WHERE ul.account_id = $1
   AND ul.created_at >= $2
   AND ul.created_at <  $3
-  AND ul.model = $4
+  AND ul.model = ANY($4::text[])
 GROUP BY ul.user_id, u.username
 ORDER BY standard_cost DESC`
 
@@ -172,8 +172,9 @@ func (s *Store) UserStandardCost(ctx context.Context, accountID int64, from, to 
 	return s.userStandardCost(ctx, userStandardCostSQL, accountID, from, to)
 }
 
-func (s *Store) UserStandardCostByModel(ctx context.Context, accountID int64, from, to time.Time, model string) ([]UserCost, error) {
-	return s.userStandardCost(ctx, userStandardCostByModelSQL, accountID, from, to, model)
+// UserStandardCostByModels 返回指定账号在 [from, to) 内、指定模型集合的按用户聚合标准消费。
+func (s *Store) UserStandardCostByModels(ctx context.Context, accountID int64, from, to time.Time, models []string) ([]UserCost, error) {
+	return s.userStandardCost(ctx, userStandardCostByModelsSQL, accountID, from, to, models)
 }
 
 func (s *Store) userStandardCost(ctx context.Context, sql string, args ...any) ([]UserCost, error) {
