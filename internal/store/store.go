@@ -19,9 +19,16 @@ type Store struct {
 // AccountWindowRow 是一个 Anthropic 账号的被动采样窗口数据。
 // 可空字段用指针表示「无该项采样」。
 type AccountWindowRow struct {
-	ID         int64
-	Name       string
-	Status     string
+	ID     int64
+	Name   string
+	Status string
+
+	// 调度状态字段，用于归纳展示状态（见 stats.deriveStatus）。
+	Schedulable            bool
+	RateLimitResetAt       *time.Time
+	OverloadUntil          *time.Time
+	TempUnschedulableUntil *time.Time
+
 	FiveUtil   *float64   // 5h 窗口使用率（0–1）
 	SevenUtil  *float64   // 7d 窗口使用率（0–1）
 	FiveReset  *time.Time // 5h 窗口重置时刻（= session_window_end）
@@ -59,6 +66,7 @@ func (s *Store) Close() {
 const anthropicAccountPredicate = `platform = 'anthropic' AND type IN ('oauth', 'setup-token') AND deleted_at IS NULL`
 
 const accountWindowColumns = `id, name, status,
+       schedulable, rate_limit_reset_at, overload_until, temp_unschedulable_until,
        session_window_end,
        (extra->>'session_window_utilization')::float8   AS five_util,
        (extra->>'passive_usage_7d_utilization')::float8 AS seven_util,
@@ -81,6 +89,7 @@ func scanAccountWindowRow(rows pgx.Rows) (AccountWindowRow, error) {
 	var sampledAt *string
 	if err := rows.Scan(
 		&r.ID, &r.Name, &r.Status,
+		&r.Schedulable, &r.RateLimitResetAt, &r.OverloadUntil, &r.TempUnschedulableUntil,
 		&r.FiveReset,
 		&r.FiveUtil, &r.SevenUtil,
 		&r.SevenReset,

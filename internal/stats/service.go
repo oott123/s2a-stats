@@ -53,14 +53,17 @@ type AccountsResponse struct {
 
 // AccountDTO 是单个 Anthropic 账号的窗口采样。
 type AccountDTO struct {
-	ID        int64      `json:"id"`
-	Name      string     `json:"name"`
-	Status    string     `json:"status"`
-	Sampled   bool       `json:"sampled"`
-	SampledAt *time.Time `json:"sampled_at"`
-	FiveHour  *WindowDTO `json:"five_hour"`
-	SevenDay  *WindowDTO `json:"seven_day"`
-	Fable     *WindowDTO `json:"fable,omitempty"`
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+	// Status 是归纳后的展示状态，取值见 status.go；原始状态非 active 时原样返回。
+	Status string `json:"status"`
+	// StatusUntil 是该状态预计解除的时刻，仅限流、过载、临时不可调度有值。
+	StatusUntil *time.Time `json:"status_until"`
+	Sampled     bool       `json:"sampled"`
+	SampledAt   *time.Time `json:"sampled_at"`
+	FiveHour    *WindowDTO `json:"five_hour"`
+	SevenDay    *WindowDTO `json:"seven_day"`
+	Fable       *WindowDTO `json:"fable,omitempty"`
 }
 
 // WindowDTO 是 GET /v1/accounts 中单个窗口的采样使用率与重置时刻。
@@ -114,17 +117,20 @@ func (s *Service) AccountWindows(ctx context.Context) (*AccountsResponse, error)
 		return nil, err
 	}
 
+	now := s.now()
 	resp := &AccountsResponse{Accounts: make([]AccountDTO, 0, len(rows))}
 	for _, r := range rows {
+		status, until := deriveStatus(r, now)
 		resp.Accounts = append(resp.Accounts, AccountDTO{
-			ID:        r.ID,
-			Name:      r.Name,
-			Status:    r.Status,
-			Sampled:   r.SampledAt != nil,
-			SampledAt: s.inLoc(r.SampledAt),
-			FiveHour:  s.window(r.FiveUtil, r.FiveReset),
-			SevenDay:  s.window(r.SevenUtil, r.SevenReset),
-			Fable:     s.window(r.FableUtil, r.FableReset),
+			ID:          r.ID,
+			Name:        r.Name,
+			Status:      status,
+			StatusUntil: s.inLoc(until),
+			Sampled:     r.SampledAt != nil,
+			SampledAt:   s.inLoc(r.SampledAt),
+			FiveHour:    s.window(r.FiveUtil, r.FiveReset),
+			SevenDay:    s.window(r.SevenUtil, r.SevenReset),
+			Fable:       s.window(r.FableUtil, r.FableReset),
 		})
 	}
 

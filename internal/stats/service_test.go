@@ -18,6 +18,7 @@ type costCall struct {
 }
 
 type fakeStore struct {
+	rows        []store.AccountWindowRow
 	accounts    map[int64]*store.AccountWindowRow
 	costs       []store.UserCost
 	costCalls   []costCall
@@ -26,7 +27,7 @@ type fakeStore struct {
 }
 
 func (f *fakeStore) AnthropicAccountWindows(context.Context) ([]store.AccountWindowRow, error) {
-	return nil, f.err
+	return f.rows, f.err
 }
 
 func (f *fakeStore) AnthropicAccountWindow(_ context.Context, accountID int64) (*store.AccountWindowRow, error) {
@@ -116,8 +117,8 @@ func TestWindowUsageAccountFound(t *testing.T) {
 	if len(fake.costCalls) != 3 {
 		t.Fatalf("cost calls = %d, want 3", len(fake.costCalls))
 	}
-	if got := fake.costCalls[2].models; !slices.Equal(got, []string{"claude-fable-5", "claude-fable-5.1"}) {
-		t.Errorf("fable call models = %q, want [claude-fable-5 claude-fable-5.1]", got)
+	if got := fake.costCalls[2].models; !slices.Equal(got, []string{"claude-fable-5", "claude-fable-5-1"}) {
+		t.Errorf("fable call models = %q, want [claude-fable-5 claude-fable-5-1]", got)
 	}
 }
 
@@ -186,9 +187,9 @@ func TestWindowUsageFableFallbackToSevenDay(t *testing.T) {
 	if len(fake.costCalls) != 3 {
 		t.Fatalf("cost calls = %d, want 3", len(fake.costCalls))
 	}
-	if fable := fake.costCalls[2]; !slices.Equal(fable.models, []string{"claude-fable-5", "claude-fable-5.1"}) ||
+	if fable := fake.costCalls[2]; !slices.Equal(fable.models, []string{"claude-fable-5", "claude-fable-5-1"}) ||
 		!fable.from.Equal(reset.Add(-sevenDayWindow)) || !fable.to.Equal(now) {
-		t.Errorf("fable cost call = %+v, want models=[claude-fable-5 claude-fable-5.1] from=%v to=%v", fable, reset.Add(-sevenDayWindow), now)
+		t.Errorf("fable cost call = %+v, want models=[claude-fable-5 claude-fable-5-1] from=%v to=%v", fable, reset.Add(-sevenDayWindow), now)
 	}
 }
 
@@ -233,5 +234,97 @@ func TestNotFoundNotCached(t *testing.T) {
 	}
 	if fake.windowCalls != 2 {
 		t.Errorf("AnthropicAccountWindow calls = %d, want 2 (negative results must not be cached)", fake.windowCalls)
+	}
+}
+
+func TestAccountWindowsStatus(t *testing.T) {
+	now := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
+	future := now.Add(30 * time.Minute)
+	past := now.Add(-30 * time.Minute)
+
+	tests := []struct {
+		name      string
+		row       store.AccountWindowRow
+		want      string
+		wantUntil *time.Time
+	}{
+		{
+			name: "active",
+			row:  store.AccountWindowRow{Status: "active", Schedulable: true},
+			want: "active",
+		},
+		{
+			name: "rate limited",
+			row:  store.AccountWindowRow{Status: "active", Schedulable: true, RateLimitResetAt: &future},
+			want: "rate_limited",
+			// DTO 中的解除时刻按配置时区渲染，比较用 Equal 而非指针相等。
+			wantUntil: &future,
+		},
+		{
+			name:      "overloaded",
+			row:       store.AccountWindowRow{Status: "active", Schedulable: true, OverloadUntil: &future},
+			want:      "overloaded",
+			wantUntil: &future,
+		},
+		{
+			name:      "temp unschedulable",
+			row:       store.AccountWindowRow{Status: "active", Schedulable: true, TempUnschedulableUntil: &future},
+			want:      "temp_unschedulable",
+			wantUntil: &future,
+		},
+		{
+			name: "paused",
+			row:  store.AccountWindowRow{Status: "active", Schedulable: false},
+			want: "paused",
+		},
+		{
+			name: "rate limit takes precedence over overload and pause",
+			row: store.AccountWindowRow{
+				Status: "active", Schedulable: false,
+				RateLimitResetAt: &future, OverloadUntil: &future, TempUnschedulableUntil: &future,
+			},
+			want:      "rate_limited",
+			wantUntil: &future,
+		},
+		{
+			name: "expired rate limit falls through to pause",
+			row:  store.AccountWindowRow{Status: "active", Schedulable: false, RateLimitResetAt: &past},
+			want: "paused",
+		},
+		{
+			name: "non-active status is passed through",
+			row:  store.AccountWindowRow{Status: "error", Schedulable: false, RateLimitResetAt: &future},
+			want: "error",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			row := tt.row
+			row.ID, row.Name = 1, "acc"
+			fake := &fakeStore{rows: []store.AccountWindowRow{row}}
+			svc := newTestService(t, fake)
+			svc.now = func() time.Time { return now }
+
+			resp, err := svc.AccountWindows(context.Background())
+			if err != nil {
+				t.Fatalf("err = %v, want nil", err)
+			}
+			if len(resp.Accounts) != 1 {
+				t.Fatalf("accounts = %d, want 1", len(resp.Accounts))
+			}
+			got := resp.Accounts[0]
+			if got.Status != tt.want {
+				t.Errorf("status = %q, want %q", got.Status, tt.want)
+			}
+			switch {
+			case tt.wantUntil == nil && got.StatusUntil != nil:
+				t.Errorf("status_until = %v, want nil", got.StatusUntil)
+			case tt.wantUntil != nil && got.StatusUntil == nil:
+				t.Errorf("status_until = nil, want %v", tt.wantUntil)
+			case tt.wantUntil != nil && !got.StatusUntil.Equal(*tt.wantUntil):
+				t.Errorf("status_until = %v, want %v", got.StatusUntil, tt.wantUntil)
+			}
+		})
 	}
 }

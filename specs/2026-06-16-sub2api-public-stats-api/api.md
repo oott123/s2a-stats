@@ -32,6 +32,7 @@
       "id": 123,
       "name": "anthropic-main",
       "status": "active",
+      "status_until": null,
       "sampled": true,
       "sampled_at": "2026-06-16T18:30:00+08:00",
       "five_hour": { "utilization": 0.455, "resets_at": "2026-06-16T22:30:00+08:00" },
@@ -40,7 +41,8 @@
     {
       "id": 124,
       "name": "anthropic-backup",
-      "status": "active",
+      "status": "rate_limited",
+      "status_until": "2026-06-16T19:05:00+08:00",
       "sampled": false,
       "sampled_at": null,
       "five_hour": null,
@@ -52,6 +54,19 @@
 
 - `utilization`：0–1 小数（被动采样的使用率）。
 - 某窗口缺重置时间 → 该窗口为 `null`。账号从无被动采样 → `sampled:false` 且两窗口为 `null`。
+- `status`：归纳后的展示状态，口径与 sub2api 后台账号列表一致。`accounts.status` 不是 `active`
+  时原样返回（`error`、`disabled` 等）；否则依次判定限流、过载、临时不可调度，最后落到手工暂停：
+
+| `status` | 含义 | 判定条件 |
+| --- | --- | --- |
+| `active` | 正常 | 原始状态为 `active`，无生效的期限字段，且 `schedulable = true` |
+| `rate_limited` | 限流中 | `rate_limit_reset_at` 晚于当前时刻 |
+| `overloaded` | 过载中 | `overload_until` 晚于当前时刻 |
+| `temp_unschedulable` | 临时不可调度 | `temp_unschedulable_until` 晚于当前时刻 |
+| `paused` | 暂停 | `schedulable = false` |
+
+- `status_until`：该状态预计解除的时刻，仅限流、过载、临时不可调度有值，其余为 `null`。
+- 多个期限字段同时生效时按限流 → 过载 → 临时不可调度的次序取第一个。
 
 ---
 
