@@ -94,7 +94,7 @@ function writeToSheet_(sheetName, rows) {
     values.push([
       rows[i][0],                           // A 用户名
       rows[i][1],                           // B API Cost
-      '=IF(OR(A' + r + '="zsx", A' + r + '="tioplato"), 0, $D$4)',     // C
+      '=0',     // C
       '=B' + r + '/$B$' + end,              // D
       '=MAX(C' + r + ':D' + r + ')',        // E
       '=E' + r + '/$E$' + end,              // F
